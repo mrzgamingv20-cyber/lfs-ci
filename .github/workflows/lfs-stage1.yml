@@ -1,0 +1,38 @@
+name: lfs-stage1
+on: workflow_dispatch
+jobs:
+  stage1:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 350
+    permissions:
+      contents: write
+    env:
+      LFS: /mnt/lfs
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lega-in disk
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+      - name: Siapin host
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison gawk texinfo m4 python3 wget xz-utils zstd patch file
+          sudo ln -sf bash /bin/sh
+      - name: Sources
+        run: |
+          sudo mkdir -p $LFS/sources && sudo chmod a+wt $LFS/sources
+          cd $LFS/sources
+          wget -q https://www.linuxfromscratch.org/lfs/downloads/stable/wget-list-sysv
+          wget -q https://www.linuxfromscratch.org/lfs/downloads/stable/md5sums
+          wget -q -i wget-list-sysv -c || true
+          md5sum -c md5sums 2>&1 | grep -v ': OK' || true
+      - name: Build bab 5-6
+        run: sudo -E bash scripts/stage1.sh
+      - name: Upload checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo tar -C $LFS --exclude=sources -cf - . | zstd -T0 -10 > stage1.tar.zst
+          split -b 1900M stage1.tar.zst stage1.tar.zst.part-
+          gh release create lfs-stage1 stage1.tar.zst.part-* --title lfs-stage1 --notes "checkpoint" || gh release upload lfs-stage1 stage1.tar.zst.part-* --clobber
